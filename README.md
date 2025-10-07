@@ -1,10 +1,10 @@
-# n24 Logger
+# Sleep Logger
 
-A production-ready React Native sleep tracking application with advanced gesture-based visualization and intelligent reminder system, built for non-24-hour sleep-wake disorder management.
+A production-ready React Native sleep tracking application with advanced gesture-based visualization and intelligent reminder system.
 
 ## 🎯 Overview
 
-n24 Logger provides precise sleep segment tracking with a sophisticated timeline-based UI, enabling users to log sleep patterns, schedule therapy reminders (melatonin/bright light), and analyze sleep data across time zones. The app features real-time gesture editing, performant animations, and robust offline-first architecture.
+Sleep Logger provides precise sleep segment tracking with a sophisticated timeline-based UI, enabling users to log sleep patterns, schedule therapy reminders (melatonin/bright light), and analyze sleep data across time zones. The app features real-time gesture editing, performant animations, and robust offline-first architecture.
 
 ## ✨ Key Features
 
