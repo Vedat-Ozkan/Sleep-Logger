@@ -1,12 +1,12 @@
 // src/lib/csvExport.ts
 // CSV import/export for sleep data
-// Format compatible with common N24 sleep tracking apps (SleepChart, etc.)
+// Standard CSV format for sleep tracking
 
 import { fetchAllSleepSegments, segmentExists, upsertSegment } from "@/src/lib/db";
 import { DEVICE_TZ, utcIsoToLocal } from "@/src/lib/time";
 import dayjs from "dayjs";
 
-// Standard CSV format for N24 sleep tracking:
+// Standard CSV format for sleep tracking:
 // Date,Start,End,EndDate,Duration
 // YYYY-MM-DD,HH:MM,HH:MM,YYYY-MM-DD,minutes
 

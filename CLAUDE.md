@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**n24 logger** is a React Native app for tracking sleep segments and therapy reminders (melatonin/bright light), built with Expo SDK 54. The app is primarily targeted at Android (see `app.json` platforms array).
+**Sleep Logger** is a React Native app for tracking sleep segments and therapy reminders (melatonin/bright light), built with Expo SDK 54. The app is primarily targeted at Android (see `app.json` platforms array).
 
 ## Tech Stack
 

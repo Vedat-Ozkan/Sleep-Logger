@@ -57,7 +57,7 @@ let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!_dbPromise) {
-    _dbPromise = SQLite.openDatabaseAsync("n24.db");
+    _dbPromise = SQLite.openDatabaseAsync("sleep-logger.db");
   }
   return _dbPromise;
 }

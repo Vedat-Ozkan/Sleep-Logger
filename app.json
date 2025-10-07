@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "n24 logger",
-    "slug": "n24-logger",
+    "name": "Sleep Logger",
+    "slug": "sleep-logger",
     "version": "1.0.0",
     "platforms": ["android"],
     "orientation": "portrait",
-    "scheme": "n24",
+    "scheme": "sleeplogger",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
@@ -13,7 +13,7 @@
     },
     
     "android": {
-      "package": "com.yourname.n24logger",
+      "package": "com.yourname.sleeplogger",
       "permissions": [],                // keep minimal; add if needed
       "adaptiveIcon": {
         "backgroundColor": "#0a0f1a"

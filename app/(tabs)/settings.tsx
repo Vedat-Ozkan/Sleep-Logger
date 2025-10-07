@@ -310,8 +310,7 @@ export default function SettingsScreen() {
 
       <Card title="Data management">
         <Text style={styles.label}>
-          Export, import, or reset your sleep log. CSV format compatible with
-          standard N24 sleep tracking apps.
+          Export, import, or reset your sleep log.
         </Text>
         <ToggleRow label="Weekly auto-backup" value={autoBackupEnabled} onValueChange={toggleAutoBackup} />
         <View style={styles.actions}>

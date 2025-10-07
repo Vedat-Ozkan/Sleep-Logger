@@ -101,7 +101,7 @@ const displayTime = fmtLocalHM(utcTime)  // "03:30 AM" (local)
 ```bash
 # Clone repository
 git clone <repository-url>
-cd n24
+cd sleep-logger
 
 # Install dependencies
 pnpm install
@@ -197,4 +197,4 @@ All data stored locally on device via SQLite. No cloud sync, no analytics, no ne
 
 **Built with**: React Native • Expo • TypeScript • SQLite • Reanimated
 
-*Developed as a specialized tool for non-24-hour sleep-wake disorder management, showcasing production-ready mobile development patterns and advanced React Native techniques.*
+*A specialized sleep tracking tool showcasing production-ready mobile development patterns and advanced React Native techniques.*
