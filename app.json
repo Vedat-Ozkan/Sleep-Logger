@@ -1,45 +1,34 @@
 {
   "expo": {
-    "name": "n24",
-    "slug": "n24",
+    "name": "n24 logger",
+    "slug": "n24-logger",
     "version": "1.0.0",
+    "platforms": ["android"],
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
     "scheme": "n24",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
+    
     "android": {
+      "package": "com.yourname.n24logger",
+      "permissions": [],                // keep minimal; add if needed
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#0a0f1a"
+        
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "output": "static"
     },
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
-        }
-      ]
-    ],
+    "plugins": ["expo-router", "expo-sqlite"],
+    "extra": {
+      "googleAndroidClientId": "751794512635-u6g2u1lss4s7g1d99k02qfc0a3h0gst4.apps.googleusercontent.com"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
