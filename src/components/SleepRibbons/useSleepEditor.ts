@@ -6,7 +6,7 @@ import Toast from "react-native-toast-message";
 
 import type { SleepSegment } from "../../lib/db";
 import { deleteSegment, upsertSegment } from "../../lib/db";
-import { localDateFromDayAndMinutes } from "./helpers";
+import { localDateFromDayAndMinutes } from "../../lib/time";
 
 type SegmentsByDate = Record<string, SleepSegment[]>;
 
@@ -46,6 +46,8 @@ export function useSleepEditor(
   // Day offsets for handles (0 = origin day, -1 = prev day, +1 = next day, etc.)
   const startDayOffsetSV = useSharedValue(0);
   const endDayOffsetSV = useSharedValue(0);
+  // Track drag mode globally across all columns
+  const bodyDragModeSV = useSharedValue<"none" | "horizontal" | "vertical">("none");
 
   // Overlap check - check all days that the segment spans
   const checkOverlap = useCallback(
@@ -139,7 +141,6 @@ export function useSleepEditor(
         id: edit.id,
         start_utc: start.toISOString(),
         end_utc: end.toISOString(),
-        kind: "primary",
         source: "user",
       });
 
@@ -156,8 +157,10 @@ export function useSleepEditor(
           : prev
       );
 
-      // Call onPersist to trigger parent refresh and wait for it to complete
-      await onPersist?.();
+      // Trigger parent refresh without blocking UI responsiveness
+      try {
+        void onPersist?.();
+      } catch {}
 
       return true;
     } catch (err: any) {
@@ -297,7 +300,6 @@ export function useSleepEditor(
           id: edit.id,
           start_utc: start.toISOString(),
           end_utc: end.toISOString(),
-          kind: "primary",
           source: "user",
         });
 
@@ -452,6 +454,7 @@ export function useSleepEditor(
     activeDayStartMsSV,
     startDayOffsetSV,
     endDayOffsetSV,
+    bodyDragModeSV,
     startNewEdit,
     startNewEditWithOffset,
     startExistingEdit,

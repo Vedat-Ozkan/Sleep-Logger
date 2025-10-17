@@ -2,11 +2,15 @@ import * as DocumentPicker from "expo-document-picker";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 // Toast handled by showError/showInfo/showSuccess helpers
 import { showError, showInfo, showSuccess } from "@/src/lib/toast";
 
+import Card from "@/src/components/card";
+import NumericInput from "@/src/components/numeric-input";
+import SolidButton from "@/src/components/solid-button";
+import ToggleRow from "@/src/components/toggle-row";
 import {
   DEFAULT_EDITOR_PREFS,
   EditorPrefs,
@@ -14,11 +18,9 @@ import {
   resetSleepData,
   saveEditorPrefs,
 } from "@/src/lib/db";
-import { colors } from "@/src/theme/colors";
-import Card from "@/src/components/card";
-import ToggleRow from "@/src/components/toggle-row";
 import { useClockPref } from "@/src/lib/useClockPref";
-import SolidButton from "@/src/components/solid-button";
+import { usePhaseShift } from "@/src/lib/usePhaseShift";
+import { colors } from "@/src/theme/colors";
 import * as WebBrowser from "expo-web-browser";
 
 export default function SettingsScreen() {
@@ -27,8 +29,8 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [dataBusy, setDataBusy] = useState(false);
   const [editorBusy, setEditorBusy] = useState(false);
-  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
   const { clock24h, updateClock24h } = useClockPref();
+  const phaseShift = usePhaseShift();
   const editorSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -36,11 +38,6 @@ export default function SettingsScreen() {
       try {
         const editor = await loadEditorPrefs();
         setEditorPrefs(editor);
-
-        // Load auto-backup setting
-        const { isAutoBackupEnabled } = await import('@/src/lib/autoBackup');
-        const autoBackup = await isAutoBackupEnabled();
-        setAutoBackupEnabled(autoBackup);
       } catch (error) {
         console.warn("Failed to load settings", error);
         showError("Could not load settings", error);
@@ -194,7 +191,7 @@ export default function SettingsScreen() {
     }
   }, []);
 
-  const confirmResetData = useCallback(() => {
+  const confirmDeleteData = useCallback(() => {
     Alert.alert(
       "Delete All Data?",
       "This will permanently delete all your sleep history. This action cannot be undone.",
@@ -222,16 +219,6 @@ export default function SettingsScreen() {
     );
   }, []);
 
-  const toggleAutoBackup = useCallback(async (enabled: boolean) => {
-    setAutoBackupEnabled(enabled); // Optimistic update
-    try {
-      const { setAutoBackupEnabled: setBackup } = await import('@/src/lib/autoBackup');
-      await setBackup(enabled);
-    } catch (e) {
-      setAutoBackupEnabled(!enabled); // Revert on error
-      showError('Update failed', e);
-    }
-  }, []);
 
   if (loading) {
     return (
@@ -251,74 +238,98 @@ export default function SettingsScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-      <Text style={styles.title}>Settings</Text>
+        <Card title="Display">
+          <ToggleRow
+            label="24-hour clock"
+            value={clock24h}
+            onValueChange={updateClock24h}
+          />
+        </Card>
 
-      <Card title="Display">
-        <ToggleRow label="24-hour clock" value={clock24h} onValueChange={updateClock24h} />
-      </Card>
-
-      <Card title="Standard sleep length">
-        <Text style={styles.label}>When creating a new sleep segment</Text>
-        <View style={styles.timeInputRow}>
-          <View style={styles.timeInputGroup}>
-            <Text style={styles.timeInputLabel}>Hours</Text>
-            <TextInput
-              style={styles.timeInput}
-              value={String(Math.floor(editorPrefs.defaultSegmentLengthMin / 60))}
-              onChangeText={(text) => {
-                const hours = parseInt(text) || 0;
-                const currentMinutes = editorPrefs.defaultSegmentLengthMin % 60;
-                const totalMinutes = hours * 60 + currentMinutes;
-                if (hours >= 0 && hours <= 24 && totalMinutes <= 24 * 60) {
-                  persistEditor({
-                    ...editorPrefs,
-                    defaultSegmentLengthMin: totalMinutes,
-                  });
-                }
-              }}
-              keyboardType="number-pad"
-              placeholder="8"
-              placeholderTextColor={colors.textTertiary}
-              editable={!editorBusy}
-            />
+        <Card title="Standard sleep length">
+          <Text style={styles.label}>When creating a new sleep segment</Text>
+          <View style={styles.timeInputRow}>
+            <View style={styles.timeInputGroup}>
+              <Text style={styles.timeInputLabel}>Hours</Text>
+              <NumericInput
+                value={Math.floor(editorPrefs.defaultSegmentLengthMin / 60)}
+                onChangeValue={(hours) => {
+                  const currentMinutes =
+                    editorPrefs.defaultSegmentLengthMin % 60;
+                  const totalMinutes = hours * 60 + currentMinutes;
+                  if (totalMinutes <= 24 * 60) {
+                    persistEditor({
+                      ...editorPrefs,
+                      defaultSegmentLengthMin: totalMinutes,
+                    });
+                  }
+                }}
+                min={0}
+                max={24}
+                placeholder="8"
+              />
+            </View>
+            <View style={styles.timeInputGroup}>
+              <Text style={styles.timeInputLabel}>Minutes</Text>
+              <NumericInput
+                value={editorPrefs.defaultSegmentLengthMin % 60}
+                onChangeValue={(minutes) => {
+                  const currentHours = Math.floor(
+                    editorPrefs.defaultSegmentLengthMin / 60
+                  );
+                  const totalMinutes = currentHours * 60 + minutes;
+                  if (totalMinutes <= 24 * 60) {
+                    persistEditor({
+                      ...editorPrefs,
+                      defaultSegmentLengthMin: totalMinutes,
+                    });
+                  }
+                }}
+                min={0}
+                max={59}
+                placeholder="0"
+              />
+            </View>
           </View>
-          <View style={styles.timeInputGroup}>
-            <Text style={styles.timeInputLabel}>Minutes</Text>
-            <TextInput
-              style={styles.timeInput}
-              value={String(editorPrefs.defaultSegmentLengthMin % 60)}
-              onChangeText={(text) => {
-                const minutes = parseInt(text) || 0;
-                const currentHours = Math.floor(editorPrefs.defaultSegmentLengthMin / 60);
-                const totalMinutes = currentHours * 60 + minutes;
-                if (minutes >= 0 && minutes < 60 && totalMinutes <= 24 * 60) {
-                  persistEditor({
-                    ...editorPrefs,
-                    defaultSegmentLengthMin: totalMinutes,
-                  });
-                }
-              }}
-              keyboardType="number-pad"
+        </Card>
+
+        <Card title="Phase shift">
+          <Text style={styles.label}>
+            Shift all reminders and prompts each day by set amount
+          </Text>
+          <View style={styles.phaseShiftRow}>
+            <Text style={styles.phaseShiftLabel}>Daily shift:</Text>
+            <NumericInput
+              value={phaseShift.shiftMinutesPerDay}
+              onChangeValue={(value) => phaseShift.setShiftMinutes(value)}
+              min={-1440}
+              max={1440}
+              allowNegative
               placeholder="0"
-              placeholderTextColor={colors.textTertiary}
-              editable={!editorBusy}
+              style={styles.phaseShiftInput}
             />
           </View>
-        </View>
-        <Text style={styles.note}>Edits snap to 5-minute intervals</Text>
-      </Card>
+        </Card>
 
-      <Card title="Data management">
-        <Text style={styles.label}>
-          Export, import, or reset your sleep log.
-        </Text>
-        <ToggleRow label="Weekly auto-backup" value={autoBackupEnabled} onValueChange={toggleAutoBackup} />
-        <View style={styles.actions}>
-          <SolidButton title={dataBusy ? "Working…" : "Export CSV"} onPress={shareBackup} disabled={dataBusy} />
-          <SolidButton title={dataBusy ? "Working…" : "Import CSV"} onPress={importBackup} disabled={dataBusy} />
-          <SolidButton title={dataBusy ? "Working…" : "Reset all data"} onPress={confirmResetData} disabled={dataBusy} />
-        </View>
-      </Card>
+        <Card title="Data management">
+          <View style={styles.actions}>
+            <SolidButton
+              title={dataBusy ? "Working…" : "Export CSV"}
+              onPress={shareBackup}
+              disabled={dataBusy}
+            />
+            <SolidButton
+              title={dataBusy ? "Working…" : "Import CSV"}
+              onPress={importBackup}
+              disabled={dataBusy}
+            />
+            <SolidButton
+              title={dataBusy ? "Working…" : "Delete all data"}
+              onPress={confirmDeleteData}
+              disabled={dataBusy}
+            />
+          </View>
+        </Card>
       </ScrollView>
     </View>
   );
@@ -384,15 +395,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  timeInput: {
+  phaseShiftRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  phaseShiftLabel: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  phaseShiftInput: {
     backgroundColor: colors.bgPrimary,
     borderWidth: 1,
     borderColor: colors.borderPrimary,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     color: colors.textPrimary,
     fontSize: 16,
     textAlign: "center",
+    minWidth: 60,
+  },
+  phaseShiftUnit: {
+    color: colors.textTertiary,
+    fontSize: 12,
   },
 });

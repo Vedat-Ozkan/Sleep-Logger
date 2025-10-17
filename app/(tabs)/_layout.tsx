@@ -20,16 +20,20 @@ export default function TabsLayout() {
         options={{
           title: "Log",
           tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="alarm" color={color} size={size} />
+            <MaterialIcons name="more-time" color={color} size={size} />
           ),
         }}
       />
       <Tabs.Screen
-        name="calendar"
+        name="timeline"
         options={{
-          title: "Calendar",
+          title: "Timeline",
           tabBarIcon: ({ color, size }) => (
-            <MaterialIcons name="calendar-today" color={color} size={size} />
+            <MaterialIcons
+              name="insert-chart-outlined"
+              color={color}
+              size={size}
+            />
           ),
         }}
       />

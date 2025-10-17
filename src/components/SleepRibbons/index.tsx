@@ -61,6 +61,7 @@ const SleepRibbons = forwardRef<SleepRibbonsHandle, Props>(function Inner(
     activeDayStartMsSV,
     startDayOffsetSV,
     endDayOffsetSV,
+    bodyDragModeSV,
     startNewEdit,
     startNewEditWithOffset,
     startExistingEdit,
@@ -69,6 +70,8 @@ const SleepRibbons = forwardRef<SleepRibbonsHandle, Props>(function Inner(
     deleteEdit,
     forceExitEditMode,
   } = useSleepEditor(segmentsByDate, onPersist);
+
+  // (Delete mode removed)
 
   // Refs for stable calls on unmount/blur
   const editRef = useRef(edit);
@@ -228,6 +231,7 @@ const SleepRibbons = forwardRef<SleepRibbonsHandle, Props>(function Inner(
               activeDayStartMsSV={activeDayStartMsSV}
               startDayOffsetSV={startDayOffsetSV}
               endDayOffsetSV={endDayOffsetSV}
+              bodyDragModeSV={bodyDragModeSV}
               startNewEdit={startNewEdit}
               startNewEditWithOffset={startNewEditWithOffset}
               startExistingEdit={startExistingEdit}
@@ -267,6 +271,7 @@ const SleepRibbons = forwardRef<SleepRibbonsHandle, Props>(function Inner(
             </Text>
           </Pressable>
         )}
+
       </View>
     </View>
   );

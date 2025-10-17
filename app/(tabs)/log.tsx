@@ -4,17 +4,17 @@ import { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 // Toast handled by showError/showInfo/showSuccess helpers
-import { showError, showInfo, showSuccess } from "@/src/lib/toast";
+import SolidButton from "@/src/components/solid-button";
 import {
   closeLatestOpenPrimary,
   createOpenPrimary,
   getOpenPrimary,
   SleepSegment,
 } from "@/src/lib/db";
+import { showError, showInfo, showSuccess } from "@/src/lib/toast";
+import { useClockPref } from "@/src/lib/useClockPref";
 import { colors } from "@/src/theme/colors";
 import dayjs from "dayjs";
-import { useClockPref } from "@/src/lib/useClockPref";
-import SolidButton from "@/src/components/solid-button";
 
 export default function LogScreen() {
   const insets = useSafeAreaInsets();
@@ -87,55 +87,40 @@ export default function LogScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.centeredContent}>
-        {openSegment ? (
-          <>
-            <View style={styles.iconContainer}>
-              <Text style={styles.icon}>😴</Text>
-            </View>
+        {/* Icon - absolute fixed position */}
+        <View style={styles.iconContainer}>
+          <Text style={styles.icon}>{openSegment ? "😴" : "🌙"}</Text>
+        </View>
 
-            <Text style={styles.statusTitle}>Sleeping</Text>
+        {/* Title - absolute fixed position */}
+        <View style={styles.titleContainer}>
+          <Text style={styles.statusTitle}>
+            {openSegment ? "Sleeping" : "Ready to sleep?"}
+          </Text>
+        </View>
 
-            <View style={styles.timeCard}>
-              <Text style={styles.timeLabel}>Started at</Text>
-              <Text style={styles.timeValue}>
-                {dayjs.utc(openSegment.start_utc).local().format(clock24h ? "HH:mm" : "h:mm A")}
-              </Text>
-            </View>
+        {/* Info cards - fixed space with absolute positioning */}
+        <View style={styles.infoContainer}>
+          {openSegment ? (
+            <>
+              <View style={styles.durationCard}>
+                <Text style={styles.durationLabel}>Duration</Text>
+                <Text style={styles.durationValue}>{durationText}</Text>
+              </View>
+            </>
+          ) : null}
+        </View>
 
-            <View style={styles.durationCard}>
-              <Text style={styles.durationLabel}>Duration</Text>
-              <Text style={styles.durationValue}>{durationText}</Text>
-            </View>
-
-            <SolidButton
-              title={busy ? "Working..." : "Just woke up"}
-              onPress={onWakeNow}
-              disabled={busy}
-              style={{ width: "100%", maxWidth: 300, marginTop: 16 }}
-              testID="wake-now"
-            />
-          </>
-        ) : (
-          <>
-            <View style={styles.iconContainer}>
-              <Text style={styles.icon}>🌙</Text>
-            </View>
-
-            <Text style={styles.statusTitle}>Ready to sleep</Text>
-
-            <Text style={styles.subtitle}>
-              Track your sleep by logging when you go to bed
-            </Text>
-
-            <SolidButton
-              title={busy ? "Working..." : "Went to bed now"}
-              onPress={onBedNow}
-              disabled={busy}
-              style={{ width: "100%", maxWidth: 300, marginTop: 16 }}
-              testID="bed-now"
-            />
-          </>
-        )}
+        {/* Button - absolute fixed position */}
+        <View style={styles.buttonContainer}>
+          <SolidButton
+            title={busy ? "Working..." : (openSegment ? "Just woke up" : "Went to bed now")}
+            onPress={openSegment ? onWakeNow : onBedNow}
+            disabled={busy}
+            style={styles.buttonStyle}
+            testID={openSegment ? "wake-now" : "bed-now"}
+          />
+        </View>
       </View>
     </View>
   );
@@ -151,75 +136,95 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 32,
-    gap: 24,
   },
   iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    position: "absolute",
+    top: "25%",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: colors.bgSecondary,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
   },
   icon: {
-    fontSize: 64,
+    fontSize: 56,
+  },
+  titleContainer: {
+    position: "absolute",
+    top: "25%",
+    marginTop: 120, // Icon height (100) + gap (20)
+    width: "100%",
+    alignItems: "center",
   },
   statusTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "700",
     color: colors.textPrimary,
     textAlign: "center",
   },
-  subtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    textAlign: "center",
-    marginBottom: 8,
+  infoContainer: {
+    position: "absolute",
+    top: "25%",
+    marginTop: 180, // Icon (100) + gap (20) + title (~40) + gap (20)
+    width: "100%",
+    maxWidth: 300,
+    minHeight: 120, // Reserve space even when empty
+    gap: 12,
+    alignItems: "center",
   },
   timeCard: {
     backgroundColor: colors.bgSecondary,
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 40,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     alignItems: "center",
-    gap: 8,
+    gap: 4,
     width: "100%",
-    maxWidth: 300,
   },
   timeLabel: {
-    fontSize: 14,
+    fontSize: 11,
     color: colors.textSecondary,
     fontWeight: "600",
     textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
   timeValue: {
-    fontSize: 48,
+    fontSize: 22,
     fontWeight: "700",
     color: colors.textPrimary,
   },
   durationCard: {
     backgroundColor: colors.bgSecondary,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     alignItems: "center",
-    gap: 4,
+    gap: 2,
     width: "100%",
-    maxWidth: 300,
   },
   durationLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
     fontWeight: "600",
     textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
   durationValue: {
-    fontSize: 28,
+    fontSize: 16,
     fontWeight: "600",
     color: colors.textPrimary,
+  },
+  buttonContainer: {
+    position: "absolute",
+    top: "25%",
+    marginTop: 320, // Icon + gaps + title + infoContainer space
+    width: "100%",
+    maxWidth: 300,
+    alignItems: "center",
+  },
+  buttonStyle: {
+    width: "100%",
   },
   // Buttons use SolidButton for consistent app styling
 });

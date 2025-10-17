@@ -1,16 +1,68 @@
-# Repository Guidelines
+Project Overview
+Transform an existing React Native sleep tracking app to be more impressive for ATS scanners and hiring managers targeting frontend/fullstack/SWE roles at startups and enterprises in Canada/US.
+Current State
 
-## Project Structure & Module Organization
-The Expo Router entry point lives in `app/`, with each route as a `.tsx` file and a nested layout in `app/(tabs)/`. Shared UI sits under `src/components`, reusable logic and stores in `src/lib`, and theming primitives in `src/theme`. Static assets (fonts, images, sounds) belong in `assets/`. Respect the existing `@/` path alias when importing across folders to keep relative paths shallow.
+React Native app with gesture-based timeline UI using Reanimated worklets
+SQLite for offline-first data persistence
+UTC-based time handling with timezone conversion
+Push notifications for sleep/wake logging
+Pre-computed day indices for calendar optimization
 
-## Build, Test, and Development Commands
-Use pnpm for all scripts to stay in sync with the lockfile: `pnpm start` launches the Expo dev server, while `pnpm android`, `pnpm ios`, and `pnpm web` produce platform-specific builds. Run `pnpm lint` before submitting changes to catch style issues early. `pnpm reset-project` reinitialises caches and dependencies when the Metro bundler behaves unexpectedly; run it sparingly because it deletes local state.
+Phase 1: Quick Wins (4-6 hours total)
+Task 1.1: Add Error Monitoring with Sentry (30 minutes)
+npm install @sentry/react-native
+ Sign up for free Sentry account at https://sentry.io
+ Initialize Sentry in App.tsx or index.js
+ Add Sentry.captureException() to existing try-catch blocks
+ Test with a deliberate error to confirm dashboard reporting
+ Add performance monitoring with Sentry.startTransaction()
 
-## Coding Style & Naming Conventions
-TypeScript is required and compiled in strict mode via `expo/tsconfig.base`; fix type errors instead of suppressing them. Follow the Expo ESLint ruleset (`eslint-config-expo`); align with the default 2-space indentation, trailing commas, and double-quoted JSX attributes found in existing files. Name React components with PascalCase, hooks with `use` prefixes, Zustand stores with `[name]Store`, and keep file names lowercase with dashes where multiple words are needed (e.g., `log-entry-card.tsx`).
+Task 1.3: Setup GitHub Actions CI/CD (30 minutes)
+Create .github/workflows/ci.yml:
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
 
-## Testing Guidelines
-No automated tests are present yet, but new features should include component or hook tests using `@testing-library/react-native` and Jest. Co-locate spec files next to the implementation using the `.test.tsx` or `.test.ts` suffix (e.g., `log-screen.test.tsx`). Ensure tests can run via a future `pnpm test` script; include that command in PR notes until the script is wired up. Aim for coverage on stateful hooks and navigation guards, especially when touching reminders or notification flows.
+Create the workflow file
+ Ensure package.json has lint and test scripts
+ Push to GitHub and verify green checkmark
 
-## Commit & Pull Request Guidelines
-Match the existing Conventional Commit style (`chore: …`, `feat: …`, `fix: …`) so changelog tooling remains viable. Keep commits focused and reference ticket IDs when available. Pull requests must explain the user-facing impact, list manual test steps (device + platform), and attach screenshots or screen recordings for UI changes under `app/(tabs)/`. Tag reviewers who maintain the affected area (components, lib, or theme) and confirm Expo Go builds when relevant before requesting approval.
+ Task 1.4: Add Jest Unit Tests (2-3 hours)
+npm install --save-dev @testing-library/react-native jest
+
+Create __tests__ directory
+ Write tests for:
+
+ Sleep duration calculation utility
+ Timezone conversion functions
+ Date formatting utilities
+ SQLite CRUD operations (mock the database)
+ At least 2 component snapshot tests
+
+
+ Aim for 50-60% coverage minimum
+ Add coverage script to package.json: "test:coverage": "jest --coverage"
+
+ Task 4.2: Enhanced README (30 minutes)
+Update README.md with:
+
+ Architecture diagram
+ Performance metrics (app size, load time, frame rate)
+ Test coverage badge
+ Setup instructions
+ API documentation link
+ Screenshots/GIFs of key features
+
+ Task 4.4: Create Release Pipeline (1 hour)
+ Add GitHub Action for automated releases
+ Setup semantic versioning
+ Add changelog generation
+ Create build scripts for Android

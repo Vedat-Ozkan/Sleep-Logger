@@ -2,24 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import Toast from "react-native-toast-message";
 
 import { getPref, setPref } from "@/src/lib/prefs";
+import { calculatePhaseShiftedTime, hmToString, parseHm, TimeOfDay as Hm } from "@/src/lib/time";
 import { cancelScheduled } from "@/src/lib/notifications";
 
-export type Hm = { hour: number; minute: number };
-
-function clamp(n: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, n));
-}
-
-export function parseHm(hm: string): Hm {
-  const [h, m] = hm.split(":");
-  const hour = clamp(parseInt(h || "0", 10) || 0, 0, 23);
-  const minute = clamp(parseInt(m || "0", 10) || 0, 0, 59);
-  return { hour, minute };
-}
-
-export function hmToString(t: Hm): string {
-  return `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}`;
-}
+export type { Hm };
 
 type UseReminderOptions = {
   enabledKey: string;
@@ -27,21 +13,33 @@ type UseReminderOptions = {
   notifIdKey: string;
   defaultTimeHm: string; // "HH:mm"
   schedule: (t: Hm) => Promise<string>; // returns scheduled notification id
+  phaseShift?: {
+    minutesPerDay: number;
+    daysElapsed: number;
+  };
 };
 
 export function useReminder(options: UseReminderOptions) {
-  const { enabledKey, timeKey, notifIdKey, defaultTimeHm, schedule } = options;
+  const { enabledKey, timeKey, notifIdKey, defaultTimeHm, schedule, phaseShift } = options;
 
   const [enabled, setEnabled] = useState(false);
-  const [time, setTime] = useState<Hm>(parseHm(defaultTimeHm));
+  const [time, setTime] = useState<Hm>(parseHm(defaultTimeHm, { hour: 9, minute: 0 }));
   const [busy, setBusy] = useState(false);
+
+  // Apply phase shift if active
+  const getScheduleTime = useCallback((baseTime: Hm): Hm => {
+    if (!phaseShift || phaseShift.minutesPerDay === 0) {
+      return baseTime;
+    }
+    return calculatePhaseShiftedTime(baseTime, phaseShift.minutesPerDay, phaseShift.daysElapsed);
+  }, [phaseShift]);
 
   useEffect(() => {
     (async () => {
       try {
         setEnabled((await getPref(enabledKey)) === "1");
         const hm = (await getPref(timeKey)) ?? defaultTimeHm;
-        setTime(parseHm(hm));
+        setTime(parseHm(hm, { hour: 9, minute: 0 }));
       } catch (e: any) {
         Toast.show({ type: "error", text1: "Load failed", text2: String(e?.message ?? e) });
       }
@@ -58,9 +56,11 @@ export function useReminder(options: UseReminderOptions) {
         if (oldId) await cancelScheduled(oldId);
         await setPref(enabledKey, next ? "1" : "0");
         if (next) {
-          const id = await schedule(time);
+          // Apply phase shift to base time before scheduling
+          const scheduleTime = getScheduleTime(time);
+          const id = await schedule(scheduleTime);
           await setPref(notifIdKey, id);
-          await setPref(timeKey, hmToString(time));
+          await setPref(timeKey, hmToString(time)); // Store base time, not shifted
         } else {
           await setPref(notifIdKey, "");
         }
@@ -71,7 +71,7 @@ export function useReminder(options: UseReminderOptions) {
         setBusy(false);
       }
     },
-    [busy, enabledKey, notifIdKey, schedule, time, timeKey]
+    [busy, enabledKey, notifIdKey, schedule, time, timeKey, getScheduleTime]
   );
 
   const setTimeAndReschedule = useCallback(
@@ -81,11 +81,13 @@ export function useReminder(options: UseReminderOptions) {
       try {
         const t = { hour: d.getHours(), minute: d.getMinutes() };
         setTime(t);
-        await setPref(timeKey, hmToString(t));
+        await setPref(timeKey, hmToString(t)); // Store base time
         if (enabled) {
           const oldId = (await getPref(notifIdKey)) || "";
           if (oldId) await cancelScheduled(oldId);
-          const id = await schedule(t);
+          // Apply phase shift before scheduling
+          const scheduleTime = getScheduleTime(t);
+          const id = await schedule(scheduleTime);
           await setPref(notifIdKey, id);
         }
       } catch (e: any) {
@@ -94,12 +96,16 @@ export function useReminder(options: UseReminderOptions) {
         setBusy(false);
       }
     },
-    [busy, enabled, notifIdKey, schedule, timeKey]
+    [busy, enabled, notifIdKey, schedule, timeKey, getScheduleTime]
   );
+
+  // Calculate the actual scheduled time for display
+  const scheduledTime = getScheduleTime(time);
 
   return {
     enabled,
-    time,
+    time, // Base time (for editing)
+    scheduledTime, // Actual time with phase shift applied (for display)
     toggle,
     setTimeAndReschedule,
     busy,

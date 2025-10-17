@@ -37,7 +37,6 @@ export async function ensurePermission(): Promise<boolean> {
 }
 
 export async function scheduleDailyReminder(args: {
-  idKey: "melatonin" | "brightlight";
   hour: number;
   minute: number;
   title: string;

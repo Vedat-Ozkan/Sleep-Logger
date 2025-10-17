@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Sleep Logger** is a React Native app for tracking sleep segments and therapy reminders (melatonin/bright light), built with Expo SDK 54. The app is primarily targeted at Android (see `app.json` platforms array).
+**ChronoTrack** is a React Native app for tracking sleep segments and therapy reminders (melatonin/bright light), built with Expo SDK 54. The app is primarily targeted at Android (see `app.json` platforms array).
 
 ## Tech Stack
 
@@ -39,8 +39,7 @@ pnpm run lint
 The app uses expo-router with the following structure:
 - `app/_layout.tsx` - Root layout with initialization logic
 - `app/index.tsx` - Entry point (redirects to `/log`)
-- `app/(tabs)/` - Tab navigation group (log, calendar, reminders, settings)
-- `app/therapy.tsx` - Therapy action screen (deep-linked from notifications)
+- `app/(tabs)/` - Tab navigation group (log, timeline, reminders, settings)
 
 ### Database Layer (`src/lib/db.ts`)
 
@@ -125,6 +124,6 @@ When using react-native-reanimated:
 ### Time Zone Handling
 
 Always:
-- Store times in UTC (`nowUtcIso()`, `toUtcIso()`)
-- Convert to local for display (`utcIsoToLocal()`, `fmtLocalHM()`)
+- Store times in UTC (`nowUtcIso()`)
+- Convert to local for display (`utcIsoToLocal()`)
 - Use `localDateKeyFromUtcIso()` for day bucketing

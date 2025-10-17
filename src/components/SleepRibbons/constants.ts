@@ -3,7 +3,6 @@
 import { colors } from "@/src/theme/colors";
 
 // ---------- layout constants ----------
-export const AXIS_WIDTH = 52;
 export const LABEL_H = 24;
 export const HANDLE_SIZE = 20; // Visual height of handle
 export const HANDLE_TOUCH_SIZE = 48; // Touch target height (accessibility minimum)
@@ -13,10 +12,9 @@ export const DEFAULT_SNAP_MINUTES = 5;
 export const MIN_CREATE_MINUTES = 60; // minimum duration when creating a new segment
 export const MINUTES_PER_DAY = 1440;
 export const HOURS_PER_DAY = 24;
-export const MS_PER_MINUTE = 60000;
 
 // Visual feedback thresholds
-export const LONG_PRESS_DURATION = 350; // ms
+export const LONG_PRESS_DURATION = 250; // ms
 
 export const COLORS = {
   axis: colors.textSecondary,
@@ -35,7 +33,5 @@ export const COLORS = {
   // Midnight boundary and time labels
   midnightBoundary: "rgba(156,163,175,0.3)", // textSecondary @ 30%
   midnightBoundaryActive: "rgba(110,231,183,0.6)", // mint @ 60%
-  timeLabel: colors.bgSecondary,
-  timeLabelText: "#f3f4f6",
   dayBadge: colors.accentBlue,
 } as const;

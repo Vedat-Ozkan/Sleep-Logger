@@ -16,9 +16,21 @@ import {
   scheduleDailyActionReminder,
   cancelScheduled,
 } from "@/src/lib/notifications";
+import { PREF_KEYS } from "@/src/lib/db";
 import { getPref, setPref } from "@/src/lib/prefs";
 import { colors } from "@/src/theme/colors";
-import { parseHm } from "@/src/lib/reminders";
+import { calculatePhaseShiftedTime, parseHm, todayLocalDate } from "@/src/lib/time";
+
+// Sentry error monitoring (safe dynamic init; no-op if package not installed)
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Sentry = require("@sentry/react-native");
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN || "",
+    tracesSampleRate: 0.2,
+    enableAutoPerformanceTracing: true,
+  });
+} catch {}
 
 // Keep splash screen visible while loading fonts
 SplashScreen.preventAutoHideAsync();
@@ -52,11 +64,38 @@ export default function RootLayout() {
         await ensureAndroidChannel();
         await ensureLogActionCategories();
 
-        // Step 2.5: Check and create automatic backup if due
-        const { checkAndBackup } = await import('@/src/lib/autoBackup');
-        await checkAndBackup();
+        // Step 3: Calculate phase shift if active
+        let phaseShiftData: { minutesPerDay: number; daysElapsed: number } | null = null;
+        try {
+          const shiftMinutesStr = await getPref(PREF_KEYS.phaseShiftMinutes);
+          const shiftMinutes = shiftMinutesStr ? Number.parseInt(shiftMinutesStr, 10) : 0;
 
-        // Step 3: Recreate daily schedules based on stored prefs
+          if (shiftMinutes !== 0) {
+            const startDate = await getPref(PREF_KEYS.phaseShiftStartDate);
+            if (startDate) {
+              const today = todayLocalDate();
+              const start = new Date(startDate);
+              const end = new Date(today);
+              const diffTime = end.getTime() - start.getTime();
+              const daysElapsed = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+
+              phaseShiftData = { minutesPerDay: shiftMinutes, daysElapsed };
+
+              // Update last applied date
+              await setPref(PREF_KEYS.phaseShiftLastApplied, today);
+            }
+          }
+        } catch (e) {
+          console.warn('Phase shift calculation failed:', e);
+        }
+
+        // Helper to apply phase shift
+        const applyPhaseShift = (baseTime: { hour: number; minute: number }) => {
+          if (!phaseShiftData) return baseTime;
+          return calculatePhaseShiftedTime(baseTime, phaseShiftData.minutesPerDay, phaseShiftData.daysElapsed);
+        };
+
+        // Step 4: Recreate daily schedules based on stored prefs
         if (notificationsEnabled) {
           try {
             const melEnabled = await getPref('melatonin_enabled');
@@ -78,11 +117,11 @@ export default function RootLayout() {
             if (wakeOldId) await cancelScheduled(wakeOldId);
 
             if (melEnabled === '1') {
-              const { hour, minute } = parseHm(melTime);
+              const baseTime = parseHm(melTime);
+              const scheduleTime = applyPhaseShift(baseTime);
               const id = await scheduleDailyReminder({
-                idKey: 'melatonin',
-                hour,
-                minute,
+                hour: scheduleTime.hour,
+                minute: scheduleTime.minute,
                 title: 'Melatonin reminder',
                 body: 'Time to take melatonin.',
               });
@@ -90,11 +129,11 @@ export default function RootLayout() {
             }
 
             if (lightEnabled === '1') {
-              const { hour, minute } = parseHm(lightTime);
+              const baseTime = parseHm(lightTime);
+              const scheduleTime = applyPhaseShift(baseTime);
               const id = await scheduleDailyReminder({
-                idKey: 'brightlight',
-                hour,
-                minute,
+                hour: scheduleTime.hour,
+                minute: scheduleTime.minute,
                 title: 'Dark therapy',
                 body: 'Dim lights before bed.',
               });
@@ -103,22 +142,24 @@ export default function RootLayout() {
 
             // Bedtime/wake logging prompts
             if (bedEnabled === '1') {
-              const { hour, minute } = parseHm(bedTime);
+              const baseTime = parseHm(bedTime);
+              const scheduleTime = applyPhaseShift(baseTime);
               const id = await scheduleDailyActionReminder({
                 categoryId: 'bed-log',
-                hour,
-                minute,
+                hour: scheduleTime.hour,
+                minute: scheduleTime.minute,
                 title: 'Bedtime',
                 body: 'Log sleep now?',
               });
               await setPref('log_bed_notif_id', id);
             }
             if (wakeEnabled === '1') {
-              const { hour, minute } = parseHm(wakeTime);
+              const baseTime = parseHm(wakeTime);
+              const scheduleTime = applyPhaseShift(baseTime);
               const id = await scheduleDailyActionReminder({
                 categoryId: 'wake-log',
-                hour,
-                minute,
+                hour: scheduleTime.hour,
+                minute: scheduleTime.minute,
                 title: 'Good morning',
                 body: 'Log wake time?',
               });
@@ -129,7 +170,7 @@ export default function RootLayout() {
           }
         }
         
-        // Step 4: Set up notification listener (only if app is still mounted)
+        // Step 5: Set up notification listener (only if app is still mounted)
         if (isMounted) {
           notificationSubscription = Notifications.addNotificationResponseReceivedListener(
             async (resp) => {

@@ -3,7 +3,7 @@
 // Standard CSV format for sleep tracking
 
 import { fetchAllSleepSegments, segmentExists, upsertSegment } from "@/src/lib/db";
-import { DEVICE_TZ, utcIsoToLocal } from "@/src/lib/time";
+import { DEVICE_TZ, utcIsoToLocal, hmToString } from "@/src/lib/time";
 import dayjs from "dayjs";
 
 // Standard CSV format for sleep tracking:
@@ -71,8 +71,7 @@ export async function importFromCSV(csvContent: string): Promise<{
         invalid++;
         continue;
       }
-      // Normalize inputs
-      const pad2 = (n: number) => String(n).padStart(2, "0");
+      // Validate and format times
       const [sH, sM] = row.start.split(":").map((n) => Number.parseInt(n, 10));
       const [eH, eM] = row.end.split(":").map((n) => Number.parseInt(n, 10));
       if (!Number.isFinite(sH) || !Number.isFinite(sM) || !Number.isFinite(eH) || !Number.isFinite(eM)) {
@@ -84,7 +83,7 @@ export async function importFromCSV(csvContent: string): Promise<{
         continue;
       }
 
-      const startLocal = dayjs.tz(`${row.date} ${pad2(sH)}:${pad2(sM)}`, "YYYY-MM-DD HH:mm", DEVICE_TZ);
+      const startLocal = dayjs.tz(`${row.date} ${hmToString({ hour: sH, minute: sM })}`, "YYYY-MM-DD HH:mm", DEVICE_TZ);
 
       let endLocal: dayjs.Dayjs;
       if (row.duration && row.duration > 0) {
@@ -93,7 +92,7 @@ export async function importFromCSV(csvContent: string): Promise<{
       } else {
         // Use provided end time/date
         const endDateStr = row.endDate || row.date;
-        const candidate = dayjs.tz(`${endDateStr} ${pad2(eH)}:${pad2(eM)}`, "YYYY-MM-DD HH:mm", DEVICE_TZ);
+        const candidate = dayjs.tz(`${endDateStr} ${hmToString({ hour: eH, minute: eM })}`, "YYYY-MM-DD HH:mm", DEVICE_TZ);
         // If no endDate given and time goes "past midnight", roll to next day
         if (!row._endDateProvided && candidate.isBefore(startLocal)) {
           endLocal = candidate.add(1, "day");
@@ -116,7 +115,6 @@ export async function importFromCSV(csvContent: string): Promise<{
         id,
         start_utc: startUtc,
         end_utc: endUtc,
-        kind: 'primary',
         source: 'user',
       });
 

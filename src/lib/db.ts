@@ -10,11 +10,13 @@ import {
   nowUtcIso,
   splitSegmentByLocalDays,
   todayLocalDate,
+  clampTimeOfDay,
+  hmToString,
+  parseHm,
+  type TimeOfDay,
 } from "./time";
 
 export type TherapyType = "melatonin" | "bright_light";
-
-export type TimeOfDay = { hour: number; minute: number };
 
 export type ReminderPrefs = {
   melatoninEnabled: boolean;
@@ -23,16 +25,13 @@ export type ReminderPrefs = {
   brightTime: TimeOfDay;
 };
 
-export type SegmentKind = "primary" | "nap";
 export type SegmentSource = "user" | "notif";
 
 export interface SleepSegment {
   id: string;
   start_utc: string;
   end_utc: string | null; // null = open
-  kind: SegmentKind;
   source: SegmentSource;
-  notes?: string | null;
   tz_start?: string | null;
   tz_end?: string | null;
   created_at: string;
@@ -41,14 +40,12 @@ export interface SleepSegment {
 
 export type SleepSegmentExportRow = Pick<
   SleepSegment,
-  "id" | "start_utc" | "end_utc" | "kind" | "source"
+  "id" | "start_utc" | "end_utc" | "source"
 >;
 
 export interface DayIndexRow {
   local_date: string; // YYYY-MM-DD
   total_sleep_min: number;
-  has_primary: number; // 0/1
-  has_naps: number; // 0/1
   last_calc_at: string; // ISO
 }
 
@@ -57,7 +54,7 @@ let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!_dbPromise) {
-    _dbPromise = SQLite.openDatabaseAsync("sleep-logger.db");
+    _dbPromise = SQLite.openDatabaseAsync("chronotrack.db");
   }
   return _dbPromise;
 }
@@ -79,9 +76,7 @@ export async function migrate() {
       id TEXT PRIMARY KEY,
       start_utc TEXT NOT NULL,
       end_utc TEXT,
-      kind TEXT NOT NULL CHECK (kind IN ('primary','nap')),
       source TEXT NOT NULL CHECK (source IN ('user','notif')),
-      notes TEXT,
       tz_start TEXT,
       tz_end TEXT,
       created_at TEXT NOT NULL,
@@ -93,8 +88,6 @@ export async function migrate() {
     CREATE TABLE IF NOT EXISTS day_index (
       local_date TEXT PRIMARY KEY,
       total_sleep_min INTEGER NOT NULL DEFAULT 0,
-      has_primary INTEGER NOT NULL DEFAULT 0,
-      has_naps INTEGER NOT NULL DEFAULT 0,
       last_calc_at TEXT NOT NULL
     );
   `);
@@ -105,6 +98,102 @@ export async function migrate() {
   await db.execAsync(
     `CREATE INDEX IF NOT EXISTS idx_segments_end   ON sleep_segments(end_utc);`
   );
+
+  // Migration: Remove 'kind' and 'notes' columns if they exist
+  // Check if the old columns exist by examining table structure
+  const tableInfo = await db.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(sleep_segments);`
+  );
+  const columnNames = (tableInfo ?? []).map((col) => col.name);
+  const hasKind = columnNames.includes('kind');
+  const hasNotes = columnNames.includes('notes');
+  const hasHasPrimary = columnNames.includes('has_primary');
+  const hasHasNaps = columnNames.includes('has_naps');
+
+  if (hasKind || hasNotes) {
+    // Need to recreate the table without these columns
+    await db.execAsync("BEGIN TRANSACTION;");
+    try {
+      // Create new table with correct schema
+      await db.execAsync(`
+        CREATE TABLE sleep_segments_new (
+          id TEXT PRIMARY KEY,
+          start_utc TEXT NOT NULL,
+          end_utc TEXT,
+          source TEXT NOT NULL CHECK (source IN ('user','notif')),
+          tz_start TEXT,
+          tz_end TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      // Copy data (excluding kind and notes columns)
+      await db.execAsync(`
+        INSERT INTO sleep_segments_new (id, start_utc, end_utc, source, tz_start, tz_end, created_at, updated_at)
+        SELECT id, start_utc, end_utc, source, tz_start, tz_end, created_at, updated_at
+        FROM sleep_segments;
+      `);
+
+      // Drop old table
+      await db.execAsync(`DROP TABLE sleep_segments;`);
+
+      // Rename new table
+      await db.execAsync(`ALTER TABLE sleep_segments_new RENAME TO sleep_segments;`);
+
+      // Recreate indexes
+      await db.execAsync(
+        `CREATE INDEX idx_segments_start ON sleep_segments(start_utc);`
+      );
+      await db.execAsync(
+        `CREATE INDEX idx_segments_end ON sleep_segments(end_utc);`
+      );
+
+      await db.execAsync("COMMIT;");
+    } catch (error) {
+      await db.execAsync("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  // Migration: Remove has_primary and has_naps from day_index if they exist
+  const dayIndexInfo = await db.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(day_index);`
+  );
+  const dayIndexColumns = (dayIndexInfo ?? []).map((col) => col.name);
+  const dayIndexHasOldColumns = dayIndexColumns.includes('has_primary') || dayIndexColumns.includes('has_naps');
+
+  if (dayIndexHasOldColumns) {
+    await db.execAsync("BEGIN TRANSACTION;");
+    try {
+      // Create new table with correct schema
+      await db.execAsync(`
+        CREATE TABLE day_index_new (
+          local_date TEXT PRIMARY KEY,
+          total_sleep_min INTEGER NOT NULL DEFAULT 0,
+          last_calc_at TEXT NOT NULL
+        );
+      `);
+
+      // Copy data (excluding has_primary and has_naps)
+      await db.execAsync(`
+        INSERT INTO day_index_new (local_date, total_sleep_min, last_calc_at)
+        SELECT local_date, total_sleep_min, last_calc_at
+        FROM day_index;
+      `);
+
+      // Drop old table
+      await db.execAsync(`DROP TABLE day_index;`);
+
+      // Rename new table
+      await db.execAsync(`ALTER TABLE day_index_new RENAME TO day_index;`);
+
+      await db.execAsync("COMMIT;");
+    } catch (error) {
+      await db.execAsync("ROLLBACK;");
+      throw error;
+    }
+  }
 
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS therapy_events (
@@ -145,18 +234,16 @@ function uuid(): string {
 // ---------- Writes ----------
 export async function createOpenPrimary(opts?: {
   source?: SegmentSource;
-  notes?: string;
 }) {
   const db = await getDb();
   const id = uuid();
   const now = nowUtcIso();
   const src = opts?.source ?? "user";
-  const notes = opts?.notes ?? null;
 
   await db.runAsync(
-    `INSERT INTO sleep_segments (id,start_utc,end_utc,kind,source,notes,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [id, now, null, "primary", src, notes, now, now]
+    `INSERT INTO sleep_segments (id,start_utc,end_utc,source,created_at,updated_at)
+     VALUES (?,?,?,?,?,?)`,
+    [id, now, null, src, now, now]
   );
 
   await recomputeDayIndexForUtcInstant(now);
@@ -167,7 +254,7 @@ export async function getOpenPrimary(): Promise<SleepSegment | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<SleepSegment>(
     `SELECT * FROM sleep_segments
-     WHERE end_utc IS NULL AND kind='primary'
+     WHERE end_utc IS NULL
      ORDER BY start_utc DESC
      LIMIT 1`
   );
@@ -180,7 +267,7 @@ export async function closeLatestOpenPrimary(opts?: { endUtc?: string }) {
 
   const row = await db.getFirstAsync<SleepSegment>(
     `SELECT * FROM sleep_segments
-     WHERE end_utc IS NULL AND kind='primary'
+     WHERE end_utc IS NULL
      ORDER BY start_utc DESC
      LIMIT 1`
   );
@@ -200,12 +287,11 @@ export async function closeLatestOpenPrimary(opts?: { endUtc?: string }) {
 }
 
 export async function upsertSegment(
-  seg: Partial<SleepSegment> & { start_utc: string; kind?: SegmentKind }
+  seg: Partial<SleepSegment> & { start_utc: string }
 ) {
   const db = await getDb();
   const now = nowUtcIso();
   const id = seg.id ?? uuid();
-  const kind = seg.kind ?? "primary";
   const source: SegmentSource = seg.source ?? "user";
   const end_utc = seg.end_utc ?? null;
 
@@ -217,14 +303,12 @@ export async function upsertSegment(
   if (existing) {
     await db.runAsync(
       `UPDATE sleep_segments
-       SET start_utc=?, end_utc=?, kind=?, source=?, notes=?, tz_start=?, tz_end=?, updated_at=?
+       SET start_utc=?, end_utc=?, source=?, tz_start=?, tz_end=?, updated_at=?
        WHERE id=?`,
       [
         seg.start_utc,
         end_utc,
-        kind,
         source,
-        seg.notes ?? null,
         seg.tz_start ?? null,
         seg.tz_end ?? null,
         now,
@@ -233,15 +317,13 @@ export async function upsertSegment(
     );
   } else {
     await db.runAsync(
-      `INSERT INTO sleep_segments (id,start_utc,end_utc,kind,source,notes,tz_start,tz_end,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sleep_segments (id,start_utc,end_utc,source,tz_start,tz_end,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
       [
         id,
         seg.start_utc,
         end_utc,
-        kind,
         source,
-        seg.notes ?? null,
         seg.tz_start ?? null,
         seg.tz_end ?? null,
         now,
@@ -303,6 +385,9 @@ export async function getSegmentsForLocalDate(
   return rows ?? [];
 }
 
+// Delete/trim/split segments that overlap a LOCAL time range
+// (deleteSegmentsInLocalRange removed per product decision)
+
 // ---------- Day index ----------
 export async function recomputeDayIndexForUtcInstant(utcIso: string) {
   const dateKey = localDateKeyFromUtcIso(utcIso);
@@ -313,12 +398,8 @@ export async function recomputeDayIndexForLocalDate(localDate: string) {
   const segs = await getSegmentsForLocalDate(localDate);
 
   let total = 0;
-  let hasPrimary = 0;
-  let hasNaps = 0;
 
   for (const s of segs) {
-    if (s.kind === "primary") hasPrimary = 1;
-    if (s.kind === "nap") hasNaps = 1;
     if (s.end_utc) total += durationMin(s.start_utc, s.end_utc);
   }
 
@@ -326,14 +407,12 @@ export async function recomputeDayIndexForLocalDate(localDate: string) {
   const now = nowUtcIso();
 
   await db.runAsync(
-    `INSERT INTO day_index (local_date,total_sleep_min,has_primary,has_naps,last_calc_at)
-     VALUES (?,?,?,?,?)
+    `INSERT INTO day_index (local_date,total_sleep_min,last_calc_at)
+     VALUES (?,?,?)
      ON CONFLICT(local_date) DO UPDATE SET
        total_sleep_min=excluded.total_sleep_min,
-       has_primary=excluded.has_primary,
-       has_naps=excluded.has_naps,
        last_calc_at=excluded.last_calc_at`,
-    [localDate, total, hasPrimary, hasNaps, now]
+    [localDate, total, now]
   );
 }
 
@@ -360,6 +439,9 @@ export const PREF_KEYS = {
   brightNotificationId: "light_notif_id",
   defaultSegmentLength: "default_segment_length",
   snapGranularity: "snap_granularity",
+  phaseShiftMinutes: "phase_shift_minutes",
+  phaseShiftLastApplied: "phase_shift_last_applied",
+  phaseShiftStartDate: "phase_shift_start_date",
 } as const;
 
 export const REMINDER_DEFAULTS: ReminderPrefs = {
@@ -371,7 +453,7 @@ export const REMINDER_DEFAULTS: ReminderPrefs = {
 
 export interface EditorPrefs {
   defaultSegmentLengthMin: number;
-  snapMinutes: 5;
+  snapMinutes: number;
 }
 
 export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
@@ -381,31 +463,6 @@ export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
 
 const MIN_SEGMENT_MINUTES = 10;
 const MINUTES_PER_DAY = 24 * 60;
-
-function clampTime(value: TimeOfDay | null, fallback: TimeOfDay): TimeOfDay {
-  if (!value) return fallback;
-  const hour = Number.isFinite(value.hour) ? Math.min(23, Math.max(0, value.hour)) : fallback.hour;
-  const minute =
-    Number.isFinite(value.minute) ? Math.min(59, Math.max(0, value.minute)) : fallback.minute;
-  return { hour, minute };
-}
-
-function formatTime({ hour, minute }: TimeOfDay): string {
-  const h = String(Math.max(0, Math.min(23, hour))).padStart(2, "0");
-  const m = String(Math.max(0, Math.min(59, minute))).padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-function parseTime(value: string | null, fallback: TimeOfDay): TimeOfDay {
-  if (!value) return fallback;
-  const [h, m] = value.split(":");
-  const hour = Number.parseInt(h ?? "", 10);
-  const minute = Number.parseInt(m ?? "", 10);
-  if (Number.isNaN(hour) || Number.isNaN(minute)) {
-    return fallback;
-  }
-  return clampTime({ hour, minute }, fallback);
-}
 
 export async function setAppPref(key: string, value: string | null) {
   const db = await getDb();
@@ -431,16 +488,16 @@ export async function getAppPref(key: string): Promise<string | null> {
 export async function saveReminderPrefs(p: ReminderPrefs) {
   const clamped = {
     melatoninEnabled: !!p.melatoninEnabled,
-    melatoninTime: clampTime(p.melatoninTime, REMINDER_DEFAULTS.melatoninTime),
+    melatoninTime: clampTimeOfDay(p.melatoninTime, REMINDER_DEFAULTS.melatoninTime),
     brightEnabled: !!p.brightEnabled,
-    brightTime: clampTime(p.brightTime, REMINDER_DEFAULTS.brightTime),
+    brightTime: clampTimeOfDay(p.brightTime, REMINDER_DEFAULTS.brightTime),
   } satisfies ReminderPrefs;
 
   await Promise.all([
     setAppPref(PREF_KEYS.melatoninEnabled, clamped.melatoninEnabled ? "1" : "0"),
-    setAppPref(PREF_KEYS.melatoninTime, formatTime(clamped.melatoninTime)),
+    setAppPref(PREF_KEYS.melatoninTime, hmToString(clamped.melatoninTime)),
     setAppPref(PREF_KEYS.brightEnabled, clamped.brightEnabled ? "1" : "0"),
-    setAppPref(PREF_KEYS.brightTime, formatTime(clamped.brightTime)),
+    setAppPref(PREF_KEYS.brightTime, hmToString(clamped.brightTime)),
   ]);
 }
 
@@ -454,9 +511,9 @@ export async function loadReminderPrefs(): Promise<ReminderPrefs> {
 
   return {
     melatoninEnabled: melEnabled === "1",
-    melatoninTime: parseTime(melTime, REMINDER_DEFAULTS.melatoninTime),
+    melatoninTime: parseHm(melTime, REMINDER_DEFAULTS.melatoninTime),
     brightEnabled: brightEnabled === "1",
-    brightTime: parseTime(brightTime, REMINDER_DEFAULTS.brightTime),
+    brightTime: parseHm(brightTime, REMINDER_DEFAULTS.brightTime),
   } satisfies ReminderPrefs;
 }
 
@@ -535,7 +592,7 @@ export async function segmentExists(id: string): Promise<boolean> {
 export async function fetchAllSleepSegments(): Promise<SleepSegmentExportRow[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<SleepSegmentExportRow>(
-    `SELECT id, start_utc, end_utc, kind, source FROM sleep_segments ORDER BY start_utc ASC`
+    `SELECT id, start_utc, end_utc, source FROM sleep_segments ORDER BY start_utc ASC`
   );
   return rows ?? [];
 }
@@ -551,20 +608,18 @@ function isValidIsoDate(value: string): boolean {
 function normalizeImportRow(row: unknown): ValidatedImportRow | null {
   if (!row || typeof row !== "object") return null;
   const candidate = row as Record<string, unknown>;
-  const { id, start_utc, end_utc, kind, source } = candidate;
+  const { id, start_utc, end_utc, source } = candidate;
   if (typeof id !== "string" || !id) return null;
   if (typeof start_utc !== "string" || !isValidIsoDate(start_utc)) return null;
   if (end_utc !== null && end_utc !== undefined) {
     if (typeof end_utc !== "string" || !isValidIsoDate(end_utc)) return null;
   }
-  if (kind !== "primary" && kind !== "nap") return null;
   if (source !== "user" && source !== "notif") return null;
 
   return {
     id,
     start_utc,
     end_utc: (end_utc as string | null | undefined) ?? null,
-    kind: kind as SegmentKind,
     source: source as SegmentSource,
   };
 }
@@ -612,15 +667,13 @@ export async function importSleepSegments(
     for (const row of toInsert) {
       const now = nowUtcIso();
       await db.runAsync(
-        `INSERT INTO sleep_segments (id,start_utc,end_utc,kind,source,notes,tz_start,tz_end,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sleep_segments (id,start_utc,end_utc,source,tz_start,tz_end,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
         [
           row.id,
           row.start_utc,
           row.end_utc,
-          row.kind,
           row.source,
-          null,
           null,
           null,
           now,
@@ -678,9 +731,9 @@ export async function getRecentSleepStats(
 
   const db = await getDb();
   const segs = await db.getAllAsync<SleepSegment>(
-    `SELECT id, start_utc, end_utc, kind, source
+    `SELECT id, start_utc, end_utc, source
      FROM sleep_segments
-     WHERE kind='primary' AND end_utc IS NOT NULL AND end_utc >= ?
+     WHERE end_utc IS NOT NULL AND end_utc >= ?
      ORDER BY start_utc ASC`,
     [oldestUtc]
   );

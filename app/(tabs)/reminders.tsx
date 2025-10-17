@@ -7,24 +7,33 @@ import ToggleRow from "@/src/components/toggle-row";
 import { scheduleDailyActionReminder, scheduleDailyReminder } from "@/src/lib/notifications";
 import { useReminder } from "@/src/lib/reminders";
 import { useClockPref } from "@/src/lib/useClockPref";
+import { usePhaseShift } from "@/src/lib/usePhaseShift";
 import { colors } from "@/src/theme/colors";
 
 export default function RemindersScreen() {
   const insets = useSafeAreaInsets();
   const { clock24h } = useClockPref();
+  const phaseShift = usePhaseShift();
+  const phaseShiftData = phaseShift.isActive ? {
+    minutesPerDay: phaseShift.shiftMinutesPerDay,
+    daysElapsed: phaseShift.daysElapsed,
+  } : undefined;
+
   const mel = useReminder({
     enabledKey: 'melatonin_enabled',
     timeKey: 'melatonin_time',
     notifIdKey: 'melatonin_notif_id',
     defaultTimeHm: '21:00',
-    schedule: async (t) => scheduleDailyReminder({ idKey: 'melatonin', hour: t.hour, minute: t.minute, title: 'Melatonin reminder', body: 'Time to take melatonin.' }),
+    schedule: async (t) => scheduleDailyReminder({ hour: t.hour, minute: t.minute, title: 'Melatonin reminder', body: 'Time to take melatonin.' }),
+    phaseShift: phaseShiftData,
   });
   const bright = useReminder({
     enabledKey: 'light_enabled',
     timeKey: 'light_time',
     notifIdKey: 'light_notif_id',
     defaultTimeHm: '20:00',
-    schedule: async (t) => scheduleDailyReminder({ idKey: 'brightlight', hour: t.hour, minute: t.minute, title: 'Dark therapy', body: 'Dim lights before bed.' }),
+    schedule: async (t) => scheduleDailyReminder({ hour: t.hour, minute: t.minute, title: 'Dark therapy', body: 'Dim lights before bed.' }),
+    phaseShift: phaseShiftData,
   });
   // Pickers are handled inside TimePickerButton
 
@@ -34,6 +43,7 @@ export default function RemindersScreen() {
     notifIdKey: 'log_bed_notif_id',
     defaultTimeHm: '22:00',
     schedule: async (t) => scheduleDailyActionReminder({ categoryId: 'bed-log', hour: t.hour, minute: t.minute, title: 'Bedtime', body: 'Log sleep now?' }),
+    phaseShift: phaseShiftData,
   });
   const wake = useReminder({
     enabledKey: 'log_wake_enabled',
@@ -41,6 +51,7 @@ export default function RemindersScreen() {
     notifIdKey: 'log_wake_notif_id',
     defaultTimeHm: '07:00',
     schedule: async (t) => scheduleDailyActionReminder({ categoryId: 'wake-log', hour: t.hour, minute: t.minute, title: 'Good morning', body: 'Log wake time?' }),
+    phaseShift: phaseShiftData,
   });
 
   // Notifications permission and channels are ensured in app/_layout.tsx
@@ -56,8 +67,6 @@ export default function RemindersScreen() {
         gap: 16,
       }}
     >
-      <Text style={styles.title}>Reminders</Text>
-
       <Card
         title="Melatonin"
         headerRight={

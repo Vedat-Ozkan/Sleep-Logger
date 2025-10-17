@@ -20,7 +20,7 @@ import { colors } from "@/src/theme/colors";
 
 type SegmentsMap = Record<string, SleepSegment[]>;
 
-export default function CalendarScreen() {
+export default function TimelineScreen() {
   const insets = useSafeAreaInsets();
   // const [loading, setLoading] = useState(true);
   const [dates, setDates] = useState<string[]>([]);
@@ -33,26 +33,18 @@ export default function CalendarScreen() {
   const [helpVisible, setHelpVisible] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
 
-  // Slide transition + pulse animation for examples
+  // Slide transition animation for slide changes
   const slideAnim = useSharedValue(1);
-  const pulse = useSharedValue(0);
   const slideStyle = useAnimatedStyle(() => ({
     opacity: slideAnim.value,
     transform: [{ translateY: (1 - slideAnim.value) * 16 }],
   }));
-  // legacy pulse styles removed in favor of per-slide animations
   
   // Re-run animations when slide changes
   useEffect(() => {
     slideAnim.value = 0;
     slideAnim.value = withTiming(1, { duration: 250, easing: Easing.out(Easing.cubic) });
-    pulse.value = 0;
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true
-    );
-  }, [slideIndex, slideAnim, pulse]);
+  }, [slideIndex, slideAnim]);
 
   const slides = [
     {
@@ -94,23 +86,39 @@ export default function CalendarScreen() {
     [today]
   );
 
-  const loadDates = useCallback(async (dateKeys: string[]) => {
-    // setLoading(true);
-    try {
-      const entries: SegmentsMap = {};
-      for (const d of dateKeys) {
-        entries[d] = await getSegmentsForLocalDate(d);
+  // Reuse existing arrays when contents are unchanged to minimize DayColumn re-renders
+  const arraysEqualByCoreFields = (a: SleepSegment[] | undefined, b: SleepSegment[] | undefined) => {
+    if (a === b) return true;
+    if (!a || !b || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i];
+      const y = b[i];
+      if (!y) return false;
+      if (x.id !== y.id || x.start_utc !== y.start_utc || x.end_utc !== y.end_utc) {
+        return false;
       }
-      setSegmentsByDate(entries);
+    }
+    return true;
+  };
+
+  const loadDates = useCallback(async (dateKeys: string[]) => {
+    try {
+      const fetched: SegmentsMap = {};
+      for (const d of dateKeys) {
+        fetched[d] = await getSegmentsForLocalDate(d);
+      }
+      setSegmentsByDate((prev) => {
+        const next: SegmentsMap = { ...prev };
+        for (const d of dateKeys) {
+          const prevArr = prev[d];
+          const newArr = fetched[d] ?? [];
+          next[d] = arraysEqualByCoreFields(prevArr, newArr) ? prevArr : newArr;
+        }
+        return next;
+      });
       setDates(dateKeys);
     } catch (e: any) {
-      Toast.show({
-        type: "error",
-        text1: "Error",
-        text2: String(e?.message ?? e),
-      });
-    } finally {
-      // setLoading(false);
+      Toast.show({ type: "error", text1: "Error", text2: String(e?.message ?? e) });
     }
   }, []);
 
@@ -182,15 +190,15 @@ export default function CalendarScreen() {
       </View>
 
       {/* Help modal (slideshow) */}
-      <Modal visible={helpVisible} animationType="slide" transparent>
+      <Modal visible={helpVisible} animationType="fade" transparent>
         <View style={styles.modalBackdrop}>
           <View
-            style={[styles.modalCard, { paddingBottom: insets.bottom + 16 }]}
+            style={styles.modalCard}
           >
             {/* Header */}
             <Animated.View style={[styles.modalHeader, slideStyle]}>
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                style={{ flexDirection: "row", alignItems: "center" }}
               >
                 <MaterialIcons
                   name={current.icon}
@@ -216,15 +224,11 @@ export default function CalendarScreen() {
               </Pressable>
             </Animated.View>
 
-            {/* Example in the middle */}
-            <Animated.View style={[styles.modalExampleContainer, slideStyle]}>
-              {current.example}
+            {/* Example + Description grouped to keep them close */}
+            <Animated.View style={[styles.modalExampleGroup, slideStyle]}>
+              <View style={styles.modalExampleContainer}>{current.example}</View>
+              <Text style={styles.modalDesc}>{current.desc}</Text>
             </Animated.View>
-
-            {/* Description */}
-            <Animated.Text style={[styles.modalDesc, slideStyle]}>
-              {current.desc}
-            </Animated.Text>
 
             {/* Pager controls */}
             <View style={styles.modalPager}>
@@ -507,29 +511,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
   },
   modalCard: {
-    alignSelf: 'center',
-    width: '92%',
+    alignSelf: "center",
+    width: "92%",
     maxWidth: 720,
-    height: '85%',
+    height: "65%",
     maxHeight: 720,
     backgroundColor: colors.bgSecondary,
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 20,
+    paddingBottom: 12,
     borderWidth: 1,
     borderColor: colors.borderPrimary,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
   },
   modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 8,
   },
   modalTitle: {
@@ -538,23 +543,27 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
-  modalExampleContainer: {
+  modalExampleGroup: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    gap: 8,
+  },
+  modalExampleContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalDesc: {
-    color: colors.textSecondary,
+    color: colors.textPrimary,
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
+    paddingHorizontal: 8,
   },
   modalPager: {
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   modalNavBtn: {
     width: 40,
@@ -562,37 +571,37 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderPrimary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: colors.bgPrimary,
   },
   modalNavBtnDisabled: {
     opacity: 0.5,
   },
   dots: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
-    alignItems: 'center',
+    alignItems: "center",
   },
   dot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: "rgba(255,255,255,0.3)",
   },
   dotActive: {
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
   },
   exampleBox: {
-    width: '100%',
+    width: "100%",
     height: 220,
     borderWidth: 1,
     borderColor: colors.borderPrimary,
     borderRadius: 12,
     backgroundColor: colors.bgPrimary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   exampleDayCol: {
     width: 72,
@@ -601,50 +610,50 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgSecondary,
     borderWidth: 1,
     borderColor: colors.borderPrimary,
-    alignItems: 'center',
-    position: 'relative',
+    alignItems: "center",
+    position: "relative",
   },
   exampleSegment: {
-    position: 'absolute',
+    position: "absolute",
     left: 10,
     right: 10,
     top: 40,
     height: 60,
     borderRadius: 6,
     backgroundColor: EX_SEGMENT_COLOR,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   exampleHandleTop: {
-    position: 'absolute',
+    position: "absolute",
     top: 22,
     left: 14,
     right: 14,
     height: 18,
     borderRadius: 4,
     backgroundColor: colors.accentMint,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   exampleHandleBottom: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 22,
     left: 14,
     right: 14,
     height: 18,
     borderRadius: 4,
     backgroundColor: colors.accentMint,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   exampleHandleGlyph: {
     color: colors.bgPrimary,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "700",
     lineHeight: 10,
   },
   exampleTouchRing: {
-    position: 'absolute',
+    position: "absolute",
     borderWidth: 2,
     borderColor: colors.accentMint,
   },
@@ -661,6 +670,6 @@ const styles = StyleSheet.create({
   },
   examplePillText: {
     color: colors.bgPrimary,
-    fontWeight: '800',
+    fontWeight: "800",
   },
 });

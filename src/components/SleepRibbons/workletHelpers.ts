@@ -50,8 +50,9 @@ export function wIsNearLimit(value: number, limit: number, threshold: number) {
 export function wMinutesToHm24(min: number) {
   "worklet";
   const normalized = Math.max(0, min) % (24 * 60);
-  const h = Math.floor(normalized / 60);
-  const m = Math.round(normalized % 60);
+  const total = Math.round(normalized);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   const hh = h < 10 ? `0${h}` : `${h}`;
   const mm = m < 10 ? `0${m}` : `${m}`;
   return `${hh}:${mm}`;
@@ -60,8 +61,9 @@ export function wMinutesToHm24(min: number) {
 export function wMinutesToHm12(min: number) {
   "worklet";
   const normalized = Math.max(0, min) % (24 * 60);
-  const h = Math.floor(normalized / 60);
-  const m = Math.round(normalized % 60);
+  const total = Math.round(normalized);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   const am = h < 12;
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   const mm = m < 10 ? `0${m}` : `${m}`;

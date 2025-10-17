@@ -1,9 +1,10 @@
 // src/components/SleepRibbons/DayColumn.tsx
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   SharedValue,
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
 } from "react-native-reanimated";
@@ -11,7 +12,7 @@ import Svg, { Line } from "react-native-svg";
 import { scheduleOnRN } from "react-native-worklets";
 
 import type { SleepSegment } from "../../lib/db";
-import { clampSegmentToLocalDay, shortMonthDay } from "../../lib/time";
+import { clampSegmentToLocalDay, shortMonthDay, minutesToHmPref } from "../../lib/time";
 import {
   COLORS,
   HANDLE_SIZE,
@@ -22,43 +23,71 @@ import {
   MIN_DURATION,
   MINUTES_PER_DAY
 } from "./constants";
-import { wClamp, wIsPartOfEditedSegment, wMinutesToHm12, wMinutesToHm24, wSnapTo } from "./workletHelpers";
+import { wClamp, wMinutesToHm12, wMinutesToHm24, wSnapTo } from "./workletHelpers";
 
 // Time label component - shows HH:MM time near handles during editing
+const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
+
 function TimeLabel({
   minutes,
   position,
   clock24h,
+  // For gating updates to only the column where the handle is present
+  dayStartMs,
+  activeDayStartMsSV,
+  startDayOffsetSV,
+  endDayOffsetSV,
+  bodyDragModeSV,
 }: {
   minutes: SharedValue<number>;
   position: "top" | "bottom";
   clock24h: boolean;
+  dayStartMs: number;
+  activeDayStartMsSV: SharedValue<number>;
+  startDayOffsetSV: SharedValue<number>;
+  endDayOffsetSV: SharedValue<number>;
+  bodyDragModeSV: SharedValue<"none" | "horizontal" | "vertical">;
 }) {
-  // We need to use state to show the time since we can't animate text content
-  // We'll update it via a derived value and re-render
-  const [timeText, setTimeText] = useState("");
-
-  // Use a derived value to compute the time string
-  const textStyle = useAnimatedStyle(() => {
+  // Pure UI-thread text: avoid JS state updates entirely by driving a TextInput via animatedProps
+  const animatedText = useAnimatedProps(() => {
     "worklet";
+    // Determine if this handle is on this day to avoid scheduling RN updates across many columns
+    const editDayMs = activeDayStartMsSV.value;
+    const offset = position === "top" ? endDayOffsetSV.value : startDayOffsetSV.value;
+    const handleDayMs = editDayMs + (offset * 86400000);
+    const isHere = handleDayMs === dayStartMs;
+
+    if (!isHere) {
+      // Return empty text when not needed
+      return { text: "" } as any;
+    }
+
     const mins = Math.round(minutes.value);
-
-    // Format the time
     const timeStr = clock24h ? wMinutesToHm24(mins) : wMinutesToHm12(mins);
+    return { text: timeStr } as any;
+  }, [clock24h, dayStartMs]);
 
-    // Schedule update on React Native thread
-    scheduleOnRN(setTimeText, timeStr);
-
-    return { opacity: 1 };
-  }, [clock24h]);
+  // Provide an initial default so the label is visible immediately on mount
+  const defaultStr = useMemo(() => {
+    try {
+      const mins = Math.round((minutes as any)?.value ?? 0);
+      return minutesToHmPref(mins, clock24h);
+    } catch {
+      return "";
+    }
+  }, [minutes, clock24h]);
 
   const containerStyle = useAnimatedStyle(() => {
     "worklet";
+    const editDayMs = activeDayStartMsSV.value;
+    const offset = position === "top" ? endDayOffsetSV.value : startDayOffsetSV.value;
+    const handleDayMs = editDayMs + (offset * 86400000);
+    const isHere = handleDayMs === dayStartMs;
     return {
-      opacity: 1,
+      opacity: isHere ? 1 : 0,
       transform: [{ scale: 1 }],
     };
-  }, []);
+  }, [dayStartMs]);
 
   return (
     <Animated.View
@@ -75,18 +104,24 @@ function TimeLabel({
           alignItems: "center",
         },
         containerStyle,
-        textStyle,
       ]}
     >
-      <Text
+      <AnimatedTextInput
+        editable={false}
+        underlineColorAndroid="transparent"
+        pointerEvents="none"
+        defaultValue={defaultStr}
         style={{
           color: "#ffffff",
           fontSize: 10,
           fontWeight: "700",
-          fontVariant: ["tabular-nums"]
-        }}>
-        {timeText}
-      </Text>
+          fontVariant: ["tabular-nums"],
+          padding: 0,
+          margin: 0,
+          textAlign: "center",
+        }}
+        animatedProps={animatedText}
+      />
     </Animated.View>
   );
 }
@@ -113,6 +148,7 @@ type Props = {
   activeDayStartMsSV: SharedValue<number>;
   startDayOffsetSV: SharedValue<number>;
   endDayOffsetSV: SharedValue<number>;
+  bodyDragModeSV: SharedValue<"none" | "horizontal" | "vertical">;
   // Callbacks
   startNewEdit: (dayKey: string, startMin: number, endMin: number, dayStartMs: number) => void;
   startNewEditWithOffset: (dayKey: string, startMin: number, endMin: number, dayStartMs: number, startDayOffset: number, endDayOffset: number) => void;
@@ -138,6 +174,7 @@ function DayColumnComponent({
   activeDayStartMsSV,
   startDayOffsetSV,
   endDayOffsetSV,
+  bodyDragModeSV,
   startNewEdit,
   startNewEditWithOffset,
   startExistingEdit,
@@ -220,25 +257,19 @@ function DayColumnComponent({
           const wouldCrossMidnight = startMin + desiredDuration >= MINUTES_PER_DAY;
 
           if (wouldCrossMidnight) {
-            // Create overnight segment
             let endMin = (startMin + desiredDuration) - MINUTES_PER_DAY;
             endMin = Math.max(0, wSnapTo(endMin, safeSnap));
-
-            // Call the new version that supports day offset
             startNewEditWithOffset(dateKey, startMin, endMin, dayStartMs, 0, 1);
           } else {
-            // Normal same-day creation
             let endMin = Math.min(MINUTES_PER_DAY - 1, startMin + desiredDuration);
             if (endMin - startMin < MIN_CREATE_MINUTES) {
               startMin = Math.max(0, endMin - MIN_CREATE_MINUTES);
             }
             endMin = Math.max(startMin + MIN_CREATE_MINUTES, wSnapTo(endMin, safeSnap));
             endMin = Math.min(MINUTES_PER_DAY - 1, endMin);
-
             if (endMin - startMin < MIN_CREATE_MINUTES) {
               endMin = Math.min(MINUTES_PER_DAY - 1, startMin + MIN_CREATE_MINUTES);
             }
-
             startNewEdit(dateKey, startMin, endMin, dayStartMs);
           }
         }),
@@ -347,6 +378,9 @@ function DayColumnComponent({
     };
   }, [dayStartMs]);
 
+  // (Delete selection overlay removed)
+
+  // (Delete gestures removed)
   const bottomHandleVisibilityStyle = useAnimatedStyle(() => {
     "worklet";
     const editDayMs = activeDayStartMsSV.value;
@@ -359,17 +393,19 @@ function DayColumnComponent({
   }, [dayStartMs]);
 
   // Body visibility - should be draggable on any day the segment spans
+  // During horizontal drag, keep gesture active on the initiating column
   const bodyVisibilityStyle = useAnimatedStyle(() => {
     "worklet";
     const editDayMs = activeDayStartMsSV.value;
     const startDayMs = editDayMs + (startDayOffsetSV.value * 86400000);
     const endDayMs = editDayMs + (endDayOffsetSV.value * 86400000);
 
-    // Check if this day is within the segment span
+    // Check if this day is within the segment span OR is the active day during horizontal drag
     const isWithinSpan = dayStartMs >= startDayMs && dayStartMs <= endDayMs;
+    const isActiveDayDuringHorizontalDrag = bodyDragModeSV.value === "horizontal" && dayStartMs === editDayMs;
 
     return {
-      pointerEvents: isWithinSpan ? ("auto" as const) : ("none" as const),
+      pointerEvents: (isWithinSpan || isActiveDayDuringHorizontalDrag) ? ("auto" as const) : ("none" as const),
     };
   }, [dayStartMs]);
 
@@ -547,7 +583,7 @@ function DayColumnComponent({
     [height, dayStartMs, safeSnap, width]
   );
 
-  // Track initial minutes for body drag
+  // Track initial minutes and offsets for body drag
   const bodyInitialStartMin = useSharedValue(0);
   const bodyInitialEndMin = useSharedValue(0);
   const bodyInitialStartOffset = useSharedValue(0);
@@ -572,6 +608,11 @@ function DayColumnComponent({
   const gBody = useMemo(
     () =>
       Gesture.Pan()
+        .minPointers(1)
+        .maxPointers(1)
+        // Keep tracking even if the finger leaves the column so users can
+        // shift across many days in a single gesture
+        .shouldCancelWhenOutside(false)
         .onStart(() => {
           "worklet";
           // Store initial values when gesture starts
@@ -579,30 +620,25 @@ function DayColumnComponent({
           bodyInitialEndMin.value = endMinSV.value;
           bodyInitialStartOffset.value = startDayOffsetSV.value;
           bodyInitialEndOffset.value = endDayOffsetSV.value;
+          bodyDragModeSV.value = "none";
         })
         .onChange((evt) => {
           "worklet";
-          // Allow body drag on any day the segment spans
-          if (
-            !wIsPartOfEditedSegment(
-              isEditingSV.value,
-              activeDayStartMsSV.value,
-              dayStartMs,
-              startDayOffsetSV.value,
-              endDayOffsetSV.value
-            )
-          )
-            return;
+          // Combined 2D drag: allow simultaneous horizontal (day shift)
+          // and vertical (time shift) movement in a single gesture.
+          if (isEditingSV.value !== 1) return;
 
+          const dragProgressX = evt.translationX / width;
+          const dayShift = Math.floor(dragProgressX + 0.5); // shift at 0.5 width steps, supports multi-day
           const deltaMin = Math.round((-evt.translationY / height) * MINUTES_PER_DAY);
 
-          // Apply delta to both start and end, preserving day offsets
+          // Base from initial state
           let startMin = bodyInitialStartMin.value + deltaMin;
           let endMin = bodyInitialEndMin.value + deltaMin;
-          let startOffset = bodyInitialStartOffset.value;
-          let endOffset = bodyInitialEndOffset.value;
+          let startOffset = bodyInitialStartOffset.value + dayShift;
+          let endOffset = bodyInitialEndOffset.value + dayShift;
 
-          // Normalize start time
+          // Normalize minutes across day boundaries, updating offsets accordingly
           while (startMin < 0) {
             startOffset--;
             startMin += MINUTES_PER_DAY;
@@ -611,8 +647,6 @@ function DayColumnComponent({
             startOffset++;
             startMin -= MINUTES_PER_DAY;
           }
-
-          // Normalize end time
           while (endMin < 0) {
             endOffset--;
             endMin += MINUTES_PER_DAY;
@@ -622,27 +656,20 @@ function DayColumnComponent({
             endMin -= MINUTES_PER_DAY;
           }
 
+          // Update shared values
           startMinSV.value = startMin;
           endMinSV.value = endMin;
           startDayOffsetSV.value = startOffset;
           endDayOffsetSV.value = endOffset;
 
-          scheduleOnRN(markDirty);
+          // Update mode to help pointer-event logic for the initiating column
+          bodyDragModeSV.value = dayShift !== 0 ? "horizontal" : (deltaMin !== 0 ? "vertical" : "none");
+
+          // Avoid scheduling React state updates every frame to keep animation smooth.
+          // We'll mark dirty on gesture end.
         })
         .onEnd(() => {
           "worklet";
-          // Allow body drag on any day the segment spans
-          if (
-            !wIsPartOfEditedSegment(
-              isEditingSV.value,
-              activeDayStartMsSV.value,
-              dayStartMs,
-              startDayOffsetSV.value,
-              endDayOffsetSV.value
-            )
-          )
-            return;
-
           // Snap start time
           let startMin = wSnapTo(startMinSV.value, safeSnap);
           let startOffset = startDayOffsetSV.value;
@@ -676,10 +703,13 @@ function DayColumnComponent({
           startDayOffsetSV.value = startOffset;
           endDayOffsetSV.value = endOffset;
 
+          // Reset drag mode
+          bodyDragModeSV.value = "none";
+
           scheduleOnRN(markDirty);
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [height, dayStartMs, safeSnap]
+    [height, dayStartMs, safeSnap, width]
   );
 
   return (
@@ -702,7 +732,6 @@ function DayColumnComponent({
               const strokeWidth = 2;
               const dash = 2;
               const gap = 4;
-              const period = dash + gap;
               return (
                 <View
                   pointerEvents="none"
@@ -767,10 +796,12 @@ function DayColumnComponent({
                       opacity: dim ? 0.3 : 1,
                     }}
                   />
-                </Animated.View>
-              </GestureDetector>
-            );
+              </Animated.View>
+            </GestureDetector>
+          );
           })}
+
+          {/* Delete selection overlay removed */}
 
           {/* Spanning segment overlay - renders across all days the segment spans */}
           {edit && (
@@ -826,6 +857,11 @@ function DayColumnComponent({
                     minutes={endMinSV}
                     position="top"
                     clock24h={clock24h}
+                    dayStartMs={dayStartMs}
+                    activeDayStartMsSV={activeDayStartMsSV}
+                    startDayOffsetSV={startDayOffsetSV}
+                    endDayOffsetSV={endDayOffsetSV}
+                    bodyDragModeSV={bodyDragModeSV}
                   />
                 </Animated.View>
               </GestureDetector>
@@ -873,6 +909,11 @@ function DayColumnComponent({
                     minutes={startMinSV}
                     position="bottom"
                     clock24h={clock24h}
+                    dayStartMs={dayStartMs}
+                    activeDayStartMsSV={activeDayStartMsSV}
+                    startDayOffsetSV={startDayOffsetSV}
+                    endDayOffsetSV={endDayOffsetSV}
+                    bodyDragModeSV={bodyDragModeSV}
                   />
                 </Animated.View>
               </GestureDetector>

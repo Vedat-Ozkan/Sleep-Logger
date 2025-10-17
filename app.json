@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Sleep Logger",
-    "slug": "sleep-logger",
+    "name": "ChronoTrack",
+    "slug": "chronotrack",
     "version": "1.0.0",
     "platforms": ["android"],
     "orientation": "portrait",
-    "scheme": "sleeplogger",
+    "scheme": "chronotrack",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
@@ -13,7 +13,7 @@
     },
     
     "android": {
-      "package": "com.yourname.sleeplogger",
+      "package": "com.yourname.chronotrack",
       "permissions": [],                // keep minimal; add if needed
       "adaptiveIcon": {
         "backgroundColor": "#0a0f1a"

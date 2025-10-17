@@ -1,0 +1,26 @@
+Great — I implemented the Phase 1 quick wins from AGENTS.md, mindful of our sandbox limits.
+
+  What I did
+
+  - Sentry (opt‑in, safe init)
+      - Added a dynamic init in app/_layout.tsx that won’t crash if the package isn’t installed. To enable, add @sentry/
+  react-native and set SENTRY_DSN.
+      - You already have src/lib/time.test.ts with robust coverage for formatting, parsing, and UTC↔local conversions.
+  - README enhancements
+      - Added high-level architecture diagram and CI/test instructions.
+      - Provided a coverage badge example and Sentry enablement note.
+
+  Why not semantic-release now?
+
+  - It requires additional dev dependencies or an action that pulls semantic-release at runtime. I can add a release
+  workflow scaffold next, but it will only work after you add a GH token and configure the package. If you want that,
+  I’ll add .github/workflows/release.yml with semantic-release action and instructions.
+
+  Next options
+
+  - Add @testing-library/react-native and write component/hook tests (e.g., SleepRibbons DayColumn gestures with mocks,
+  useSleepEditor state).
+  - Wire a release workflow using semantic-release and Conventional Commits.
+  - Add a coverage badge from your provider (Codecov/coveralls) to README once configured.
+
+  Want me to proceed with the release workflow scaffolding and a couple of example component tests?
